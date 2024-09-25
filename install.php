@@ -5,9 +5,9 @@ include "colors.php";
 // Affiche un message d'accueil
 $accueil = "--- Bienvenue dans l'installateur du framework GabriX. ---";
 $nbCaracteres = strlen($accueil);
-echo text(str_repeat("-", $nbCaracteres)."\n", "red", "white");
-echo text("$accueil\n", "red", "white");
-echo text(str_repeat("-", $nbCaracteres)."\n", "red", "white");
+echo text("\n".str_repeat("-", $nbCaracteres)."\n", "red");
+echo text("$accueil\n", "red");
+echo text(str_repeat("-", $nbCaracteres)."\n", "red");
 
 // Demander le nom du projet
 echo text("\nEntrez le nom de votre projet : ", "blue");
@@ -41,19 +41,6 @@ mkdir('public/images');
 mkdir('storage');
 mkdir('templates');
 mkdir('templates/pages');
-
-// Création de la variable database
-$databaseInfos = <<<'DBINFOS'
-<?php
-const DB_INFOS = [
-	'host'     => '127.0.0.1',
-	'port'     => '3306',
-	'dbname'   => 'nom_bdd',
-	'username' => 'root',
-	'password' => ''
-];
-DBINFOS;
-file_put_contents('config/database.php', $databaseInfos);
 
 // Création de l'index
 file_put_contents('public/index.php', "<?php\n\n// Point d'entrée de l'application\n");
@@ -131,87 +118,6 @@ class router {
 ROUTER;
 file_put_contents('lib/Router.php', $routerClass);
 
-// Création de la classe Session
-$sessionClass = <<<'SESSION'
-<?php
-namespace App\Utils;
-
-// Classe session : classe de gestion de la session
-
-use App\Entity\User;
-
-class Session {
-
-    static function activation() {
-        // Rôle : Démarrer la session
-        // Paramètres : néant
-        // Retour : True si la session est connecté, false sinon
-
-        // Démarrer le mécanisme
-        session_start();
-
-        // Si un utilisateur est connecté
-        if (self::isconnected()){
-            global $utilisateurConnecte;
-            $utilisateurConnecte = new User(self::idconnected());
-        }
-
-        // Retourner si on est connecté ou pas
-        return self::isconnected();
-    }
-
-    static function isconnected() {
-        // Rôle : Dire si il y a une connexion active
-        // Paramètres : néant
-        // Retour : true si un utilisateur est connecté, false sinon
-
-        return ! empty($_SESSION["id"]);
-    }
-
-    static function idconnected() {
-        // Rôle : Renvoyer l'id de l'utilisateur connecté
-        // Paramètres : néant
-        // Retour : L'id de l'utilisateur connecté ou 0
-
-        if (self::isconnected()) {
-            return $_SESSION["id"];
-        } else {
-            return 0;
-        }
-    }
-
-    static function userconnected() {
-        // Rôle : retourner un objet utilisateur chargé à parti de l'idconnected
-        // Paramètres : néant
-        // Retour : Un objet utilisateur chargé
-
-        if(self::isconnected()) {
-            return new User(self::idconnected());
-        } else {
-            return new User();
-        }
-    }
-
-    static function deconnect() {
-        // Rôle : déconnecter la session courante
-        // Paramètres : néant
-        // Retour : true
-
-        $_SESSION["id"] = 0;
-    }
-
-    static function connect($id) {
-        // Rôle : connecter l'utilisateur
-        // Paramètres :
-        //      $id : id de l'utilisateur à connecter
-        // Retour : true
-
-        $_SESSION["id"] = $id;
-    }
-}
-SESSION;
-file_put_contents('lib/Session.php', $sessionClass);
-
 // Création de la class Autoloader
 $autoloaderClass = <<<'AUTOLOADER'
 <?php
@@ -269,9 +175,6 @@ if (class_exists("App\Utils\Autoloader")) {
 } else {
     echo "Erreur, autoloader introuvable...";
 }
-
-// Activation de la session
-session::activation();
 INIT;
 file_put_contents('lib/Init.php', $initFile);
 
@@ -319,7 +222,7 @@ namespace GabriX\Manager;
 
 use PDO;
 
-require dirname(__DIR__,2) . '/config/database.php';
+require getcwd() . '/config/database.php';
 
 abstract class AbstractManager{
 
@@ -514,6 +417,10 @@ if (file_exists($packageJsonPath)) {
     echo "Erreur : le fichier package.json n'a pas été trouvé.\n";
 }
 
-echo text("\nInstallation terminée avec succès. Vous pouvez commencer à développer votre projet dans le dossier '$nomProjet'.\n", "green");
+echo text("\nInstallation terminée avec succès. Vous pouvez commencer à développer votre projet dans le dossier '$nomProjet'.\n\n", "green");
 
+echo text("Voulez-vous ouvrir votre projet créé avec VSCode ? (oui par défaut) : ", "blue");
+if (trim(fgets(STDIN)) === "" || trim(fgets(STDIN)) === "y") {
+    exec("code .");
+}
 ?>

@@ -2,22 +2,24 @@
 
 include "colors.php";
 
-// Vérifier si une base de données a été créé
+// Vérifier si une base de données a été créé ou qu'une entité User a déjà été créé
 if (!file_exists("config/database.php")) {
     echo text("\n!!! Veuillez d'abord créer une base de données afin d'ajouter les entités (GabriX create:database) !!!\n", "red");
+    exit;
+} else if (file_exists("src/Entity/User.php")) {
+    echo text("\n!!! Vous avez déjà créé une entité User. !!!\n", "red");
     exit;
 }
 
 // Affiche un message d'accueil
-$accueil = "--- Création d'une entitée en lien avec la base de données. ---";
+$accueil = "--- Création d'un mécanisme de session avec l'entité User ---";
 $nbCaracteres = strlen($accueil);
 echo text("\n".str_repeat("-", $nbCaracteres)."\n", "red");
 echo text("$accueil\n", "red");
 echo text(str_repeat("-", $nbCaracteres)."\n", "red");
 
-// Demander le nom de l'entité
-echo "\n\033[34mEntrez le nom de l'entité à créer : \033[0m";
-$nomEntite = ucfirst(trim(fgets(STDIN)));
+// Nom de l'entité
+$nomEntite = "User";
 
 // Création des champs de l'entité
 // Tant que $nomChamp est différent de 0, je demande à ajouter un nouveau champ
@@ -53,9 +55,34 @@ $types = [
     "ENUM" => "65 535 valeurs",
     "SET" => "64 éléments maximum"
 ];
-$ajouteChamp = true;
 $champs = [];
 $champsRequete = ["id INT PRIMARY KEY NOT NULL AUTO_INCREMENT"];
+
+// Ajout de champs automatiques
+// Demander à l'utilisateur si il souhaite ajouter automatiquement des champs courants
+$champsCourants = [
+    "nom" => "nom",
+    "prenom" => "prenom",
+    "email" => "email",
+    "mot de passe (mdp)" => "mdp",
+];
+
+echo text("\nSouhaitez-vous ajouter automatiquement les champs suivants (oui par défaut) :\n", "blue");
+foreach ($champsCourants as $champ => $label) {
+    echo "---------\n$champ ? (".text("y", "yellow")."/n) : ";
+    $choixAuto = trim(fgets((STDIN)));
+    if ($choixAuto == "" || $choixAuto == "y") {
+        $champs[] = $label;
+        $champRequete = strtolower($label). " VARCHAR(255)";
+        $champsRequete[] = $champRequete;
+        echo text("Champ $champ ajouté avec succès\n", "green");
+    } elseif ($choixAuto == "n") {
+        echo text("!!! Champ $champ non ajouté !!!", "red");
+    }
+}
+
+// Ajout de champs supplémentaires
+$ajouteChamp = true;
 while ($ajouteChamp === true) {
     // Demander le nom du champ
     echo "\n\033[34mEntrez le nom du champ à ajouter à l'entités : (Laissez vide pour arrêter l'ajout de champs)\033[0m\n";
@@ -87,7 +114,7 @@ while ($ajouteChamp === true) {
         }
         // Si l'entrée correspond à un type valide, on arrête la boucle
         elseif (array_key_exists($typeChamp, $types)) {
-            echo "Vous avez choisi le type : ".text($typeChamp."\n", "green");
+            echo text("Vous avez choisi le type : $typeChamp\n", "green");
             break;
         }
         // Si l'entrée n'est pas valide, on demande à nouveau un type de donnée
@@ -96,12 +123,11 @@ while ($ajouteChamp === true) {
         }
     }
 
-    echo text("Longueur de la valeur du champ : maximum ".$types[$typeChamp]."\n", "green");
+    echo text("Longueur de la valeur du champ : maximum ".$types[$typeChamp]."\n");
     $length = trim(fgets(STDIN));
 
-    $champRequete .= " " . $typeChamp ."(". $length.")";
-    echo text("\n".$champRequete."\n", "magenta");
 
+    $champRequete .= " " . $typeChamp ."(". $length.")";
     $champsRequete[] = $champRequete;
 }
 
@@ -109,7 +135,7 @@ require getcwd().'/config/database.php';
 
 // Connexion à la bdd
 try {
-    $bdd = new PDO('mysql:host='.DB_INFOS["host"] .';dbname='.DB_INFOS["dbname"].';port='.DB_INFOS["port"], DB_INFOS["username"], DB_INFOS["password"]);
+    $bdd = new PDO('mysql:host='.DB_INFOS["host"].';dbname='.DB_INFOS["dbname"].';port='.DB_INFOS["port"], DB_INFOS["username"], DB_INFOS["password"]);
     
     $bdd->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     
@@ -139,10 +165,18 @@ foreach ($champs as $champ) {
     $methode = "
     public function get".ucfirst($champ)."(){
         return \$this->".lcfirst($champ).";
-    }\n
+    }\n";
+    if ($champ !== "mdp") {
+    $methode .= "
     public function set".ucfirst($champ)."(\$".lcfirst($champ)."){
         \$this->".lcfirst($champ)." = \$".lcfirst($champ).";
     }\n";
+    } else {
+    $methode .= "
+    public function set".ucfirst($champ)."(\$".lcfirst($champ)."){
+        \$this->".lcfirst($champ)." = password_hash(\$".lcfirst($champ).", PASSWORD_DEFAULT);
+    }\n";
+    }
     $methodesEntite .= $methode;
 
     // Création du tableau clé(nom du champ) => valeur(valeur du champ)
@@ -214,8 +248,99 @@ class {$nomEntite}Manager extends AbstractManager{
 }
 ENTITYMANAGER;
 
+// Création de la classe Session
+$sessionClass = <<<'SESSION'
+<?php
+namespace App\Utils;
+
+// Classe session : classe de gestion de la session
+
+use App\Entity\User;
+
+class Session {
+
+    static function activation() {
+        // Rôle : Démarrer la session
+        // Paramètres : néant
+        // Retour : True si la session est connecté, false sinon
+
+        // Démarrer le mécanisme
+        session_start();
+
+        // Si un utilisateur est connecté
+        if (self::isconnected()){
+            global $utilisateurConnecte;
+            $utilisateurConnecte = new User(self::idconnected());
+        }
+
+        // Retourner si on est connecté ou pas
+        return self::isconnected();
+    }
+
+    static function isconnected() {
+        // Rôle : Dire si il y a une connexion active
+        // Paramètres : néant
+        // Retour : true si un utilisateur est connecté, false sinon
+
+        return ! empty($_SESSION["id"]);
+    }
+
+    static function idconnected() {
+        // Rôle : Renvoyer l'id de l'utilisateur connecté
+        // Paramètres : néant
+        // Retour : L'id de l'utilisateur connecté ou 0
+
+        if (self::isconnected()) {
+            return $_SESSION["id"];
+        } else {
+            return 0;
+        }
+    }
+
+    static function userconnected() {
+        // Rôle : retourner un objet utilisateur chargé à parti de l'idconnected
+        // Paramètres : néant
+        // Retour : Un objet utilisateur chargé
+
+        if(self::isconnected()) {
+            return new User(self::idconnected());
+        } else {
+            return new User();
+        }
+    }
+
+    static function deconnect() {
+        // Rôle : déconnecter la session courante
+        // Paramètres : néant
+        // Retour : true
+
+        $_SESSION["id"] = 0;
+    }
+
+    static function connect($id) {
+        // Rôle : connecter l'utilisateur
+        // Paramètres :
+        //      $id : id de l'utilisateur à connecter
+        // Retour : true
+
+        $_SESSION["id"] = $id;
+    }
+}
+SESSION;
+
+// Modification du fichier Init pour ajout de l'activation de la session
+$ajoutActivation = <<<ACTIVATION
+\n\n// Activation de la session
+session::activation();
+ACTIVATION;
+if (file_put_contents("lib/Init.php", $ajoutActivation, FILE_APPEND) === false) {
+    echo text("!!! La modification du fichier Init.php a échoué. Veuillez ajouter session::activation() à la fin du fichier !!!", "red");
+}
+
 file_put_contents('src/Entity/'.$nomEntite.'.php', $entityClass);
 echo "\n\033[32mL'entité $nomEntite a été créée avec succès dans src/Entity/$nomEntite.php.\033[0m";
 file_put_contents('src/Manager/'.$nomEntite.'Manager.php', $entityManagerClass);
-echo "\n\033[32mLe manager d'entité $nomEntite a été créée avec succès dans src/EManager/$nomEntite\Manager.php.\033[0m\n\n";
+echo "\n\033[32mLe manager d'entité $nomEntite a été créée avec succès dans src/Manager/".$nomEntite."Manager.php.\033[0m";
+file_put_contents('lib/Session.php', $sessionClass);
+echo "\n\033[32mLa class Session a été créée avec succès dans src/Entity/Session.php.\033[0m\n\n";
 ?>

@@ -17,3 +17,9 @@ if "%1"=="create:database" (
     php "D:\GabriX\create_database.php" %2
     exit /b
 )
+
+REM Vérifie si la commande est 'create:user'
+if "%1"=="create:user" (
+    php "D:\GabriX\create_user.php" %2
+    exit /b
+)
