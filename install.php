@@ -40,6 +40,7 @@ mkdir('public/images');
 mkdir('storage');
 mkdir('templates');
 mkdir('templates/pages');
+mkdir('templates/pages/app');
 
 // Création de l'index
 $index = <<<'INDEX'
@@ -62,7 +63,45 @@ $path = $_SERVER['REQUEST_URI'];
 // Lancer le routeur
 $router->dispatch($path);
 INDEX;
-file_put_contents('public/index.php', "<?php\n\nrequire \"../lib/Init.php\"\n\n// Point d'entrée de l'application\n");
+file_put_contents('public/index.php', $index);+
+
+// Création de la page 404
+$index404 = <<<'INDEX404'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 : page introuvable</title>
+    <link rel="stylesheet" href="/public/css/style.css">
+    <link rel="shortcut icon" href="/storage/gx_icon.png" type="/image/x-icon">
+</head>
+<body>
+    <h1>404</h1>
+    <p>Page non trouvée</p>
+    <p>La page que vous recherchez n'existe pas.</p>
+    <a href="/" title="Retour à l'accueil">Retour à l'accueil</a>
+</body>
+</html>
+INDEX404;
+file_put_contents('/templates/pages/erreur/404.html');
+
+// Création de l'index HTML
+$indexHtml = <<<'INDEXHTML'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body>
+    <h1>Titre de notre test</h1>
+</body>
+</html>
+INDEXHTML;
+
 
 // Création du fichier css
 file_put_contents('public/css/style.css', "");
@@ -155,7 +194,7 @@ class Router {
         }
         // Gérer la route non trouvée
         http_response_code(404);
-        include "templates/pages/404.php";
+        header("/templates/pages/erreur/404.php");
     }
 }
 ROUTER;
@@ -247,7 +286,7 @@ class Autoloader{
             
         }
 
-        $filepath = '../'. implode('/', $namespaceParts) . '.php';
+        $filepath = __DIR__ . '/../'. implode('/', $namespaceParts) . '.php';
         if (!file_exists($filepath)) {
             throw new Exception("Fichier « " . $filepath . " » introuvable pour la classe « " . $class . " ». Vérifier le chemin, le nom de la classe ou le namespace");
         }

@@ -1,5 +1,7 @@
 <?php
 
+require "colors.php";
+
 // start-server.php
 
 // Récupérer le chemin de base du projet (en supposant que ce fichier est à la racine de votre projet)
@@ -32,7 +34,10 @@ $port = isset($argv[2]) ? $argv[2] : 8000;
 $command = sprintf('php -S %s:%d -t "%s" "%s"', $host, $port, $appPath, $entryPoint);
 
 // Afficher des informations à l'utilisateur
-echo "Démarrage du serveur sur http://$host:$port\n";
+$messageServer = "--- Démarrage du serveur sur http://$host:$port ---";
+echo text(str_repeat("-",strlen($messageServer))."\n", "black", "green");
+echo text($messageServer."\n", "black", "green");
+echo text(str_repeat("-",strlen($messageServer))."\n", "black", "green");
 echo "Document root: $appPath\n";
 echo "Fichier d'entrée: $entryPoint\n";
 
