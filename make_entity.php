@@ -173,8 +173,8 @@ $entityManagerClass = <<<ENTITYMANAGER
 <?php
 
 namespace App\Manager;
-use App\Entity\{$nomEntite};
-use GabriX\Manager\AbstractManager;
+use App\Entity\\{$nomEntite};
+use GabriX\AbstractManager;
 
 class {$nomEntite}Manager extends AbstractManager{
 

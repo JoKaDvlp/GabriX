@@ -208,7 +208,7 @@ $entityManagerClass = <<<ENTITYMANAGER
 
 namespace App\Manager;
 use App\Entity\{$nomEntite};
-use GabriX\Manager\AbstractManager;
+use GabriX\AbstractManager;
 
 class {$nomEntite}Manager extends AbstractManager{
 
@@ -251,7 +251,7 @@ ENTITYMANAGER;
 // Création de la classe Session
 $sessionClass = <<<'SESSION'
 <?php
-namespace App\Utils;
+namespace Gabrix;
 
 // Classe session : classe de gestion de la session
 
@@ -330,7 +330,9 @@ SESSION;
 
 // Modification du fichier Init pour ajout de l'activation de la session
 $ajoutActivation = <<<ACTIVATION
-\n\n// Activation de la session
+
+\n\nuse GabriX\Session;
+// Activation de la session
 session::activation();
 ACTIVATION;
 if (file_put_contents("lib/Init.php", $ajoutActivation, FILE_APPEND) === false) {

@@ -29,7 +29,6 @@ echo "Création de la structure de fichiers...\n";
 mkdir('config');
 mkdir('config/Middlewares');
 mkdir('lib');
-mkdir('lib/Controller');
 mkdir('src');
 mkdir('src/Manager');
 mkdir('src/Controllers');
@@ -43,7 +42,27 @@ mkdir('templates');
 mkdir('templates/pages');
 
 // Création de l'index
-file_put_contents('public/index.php', "<?php\n\n// Point d'entrée de l'application\n");
+$index = <<<'INDEX'
+<?php
+
+use App\Controllers\AppController;
+use GabriX\Router;
+
+require __DIR__ . '/../lib/Init.php';
+
+// Point d'entrée de l'application
+
+$router = new Router();
+$router->registerRoutesFromController(AppController::class);
+// Routes créées
+
+// Récupérer l'URL actuelle
+$path = $_SERVER['REQUEST_URI'];
+
+// Lancer le routeur
+$router->dispatch($path);
+INDEX;
+file_put_contents('public/index.php', "<?php\n\nrequire \"../lib/Init.php\"\n\n// Point d'entrée de l'application\n");
 
 // Création du fichier css
 file_put_contents('public/css/style.css', "");
@@ -57,9 +76,9 @@ $routerClass = <<<'ROUTER'
 
 // Class router: classe de gestion des routes du projet
 
-namespace App\Utils;
+namespace GabriX;
 
-class router {
+class Router {
     private $routes = []; // Tableau des routes du projet de la forme ['/chemin/absolu', 'method', [class, 'controller']]
 
     public function add($methods, $path, $controller, $middlewares = []) {
@@ -74,6 +93,30 @@ class router {
         $path = $this->normalizePath($path);
         foreach ($methods as $method) {
             $this->routes[] = ['path' => $path, 'method' => strtoupper($method), 'controller' => $controller, 'middlewares' => $middlewares];
+        }
+    }
+
+    // Scanner une classe pour les attributs de route
+    public function registerRoutesFromController(string $controllerClass): void {
+        $reflectionClass = new \ReflectionClass($controllerClass);
+        
+        // Gestion des attributs au niveau de la classe (préfixes de routes)
+        $classAttributes = $reflectionClass->getAttributes(Route::class);
+        $classPath = '';
+        
+        if (!empty($classAttributes)) {
+            $classRoute = $classAttributes[0]->newInstance();
+            $classPath = $classRoute->path; // Préfixe de route depuis la classe
+        }
+
+        // Parcourir les méthodes du contrôleur pour chercher les routes
+        foreach ($reflectionClass->getMethods() as $method) {
+            $attributes = $method->getAttributes(Route::class);
+            foreach ($attributes as $attribute) {
+                $route = $attribute->newInstance(); // Instancier l'attribut Route
+                $fullPath = $this->normalizePath($classPath . $route->path); // Combiner les chemins de classe et méthode
+                $this->add($route->methods, $fullPath, [$controllerClass, $method->getName()], $route->middlewares);
+            }
         }
     }
 
@@ -118,12 +161,71 @@ class router {
 ROUTER;
 file_put_contents('lib/Router.php', $routerClass);
 
+// Création de la classe Route
+$routeClass = <<<'ROUTE'
+<?php
+
+namespace GabriX;
+
+#[\Attribute(\Attribute::TARGET_METHOD | \Attribute::TARGET_CLASS)]
+class Route {
+    public function __construct(
+        public string $path,
+        public string $name = '',
+        public array $methods = ['GET'],
+        public array $middlewares = []
+    ) {}
+}
+ROUTE;
+file_put_contents('lib/Route.php', $routeClass);
+
+// Création de la classe AppController
+$appControllerClass = <<<'APPCONTROLLER'
+<?php
+
+namespace App\Controllers;
+
+use GabriX\abstractController;
+use GabriX\Route;
+
+#[Route('/')]
+class AppController extends abstractController{
+    #[Route('', name: 'app_index')]
+    public function index(){
+        return $this->render('app/index.html');
+    }
+}
+APPCONTROLLER;
+file_put_contents('src/Controllers/AppController.php', $appControllerClass);
+
+// Création de la page HTML de démo
+$htmlPage = <<<'HTMLPAGE'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GabriX</title>
+</head>
+<body>
+    <h1>GabriX : framework PHP light</h1>
+</body>
+</html>
+HTMLPAGE;
+file_put_contents('templates/pages/app/index.html', $htmlPage);
+
 // Création de la class Autoloader
 $autoloaderClass = <<<'AUTOLOADER'
 <?php
-namespace App\Utils;
+namespace GabriX;
+
+use Exception;
 
 class Autoloader{
+    static private $aliases = [
+        'GabriX' => 'lib',
+        'App' => 'src'
+    ];
     /**
      * 
      */
@@ -135,15 +237,21 @@ class Autoloader{
      * 
      */
     static function autoloadClasses($class){
-        $classPath = str_replace("App"."\\","",$class);
-        $classPath = str_replace("\\","/",$classPath). ".php";
-        // echo $classPath." trouvée";
-        // echo "<br>";
-        if (file_exists(__DIR__."/../".$classPath)) {
-            require __DIR__."/../".$classPath;
+        
+        $namespaceParts = explode("\\", $class);
+
+        if (in_array($namespaceParts[0],array_keys(self::$aliases))) {
+            $namespaceParts[0] = self::$aliases[$namespaceParts[0]];
         } else {
-            echo "Classe " . $classPath . " non trouvée";
+            throw new Exception('Namespace « ' . $namespaceParts[0] . ' » invalide. Un namespace doit commencer par : « Plugo » ou « App »', 1);
+            
         }
+
+        $filepath = '../'. implode('/', $namespaceParts) . '.php';
+        if (!file_exists($filepath)) {
+            throw new Exception("Fichier « " . $filepath . " » introuvable pour la classe « " . $class . " ». Vérifier le chemin, le nom de la classe ou le namespace");
+        }
+        require $filepath;
     }
 }
 AUTOLOADER;
@@ -155,22 +263,15 @@ $initFile = <<<'INIT'
 
 // Code d'initialisation à inclure en début de contrôleur
 
+use GabriX\Autoloader;
+
 // Paramétrer l'affichage des erreurs
-
-use App\Utils\Autoloader;
-use App\Utils\Session;
-
 ini_set("display_errors", 1);   // Afficher les erreurs
 error_reporting(E_ALL);         // Toutes les erreurs
 
-// Ouverture de la BDD dans une variable globale $bdd
-global $bdd;
-$bdd = new PDO("mysql:host=localhost;dbname=projets_exam-back_jkarmann;charset=UTF8", "jkarmann", "KU=WFl4d?G");
-$bdd->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_WARNING);
-
 // Autochargement des classes
-require "autoloader.php";
-if (class_exists("App\Utils\Autoloader")) {
+require "Autoloader.php";
+if (class_exists("GabriX\Autoloader")) {
     Autoloader::register();
 } else {
     echo "Erreur, autoloader introuvable...";
@@ -181,7 +282,7 @@ file_put_contents('lib/Init.php', $initFile);
 // Création de l'abstractController
 $abstractControllerClass = <<<'ABSTRACTCONTROLLER'
 <?php
-namespace App\Utils;
+namespace GabriX;
 
 // Class abstractController : class générique de gestion des controlleurs
 
@@ -195,7 +296,7 @@ class abstractController {
         // Retour : le template rendu
         ob_start();
         extract($parameter);
-        require "/templates/pages/" . $view . ".html.twig";            
+        require __DIR__ . "/../templates/pages/" . $view;            
         $content = ob_get_contents();
         ob_end_clean();
         return $content;
@@ -218,11 +319,11 @@ file_put_contents('lib/AbstractController.php', $abstractControllerClass);
 $abstractManagerClass = <<<'ABSTRACTMANAGER'
 <?php
 
-namespace GabriX\Manager;
+namespace GabriX;
 
 use PDO;
 
-require getcwd() . '/config/database.php';
+require '../config/database.php';
 
 abstract class AbstractManager{
 
@@ -367,7 +468,7 @@ abstract class AbstractManager{
 
 }
 ABSTRACTMANAGER;
-file_put_contents('src/Manager/AbstractManager.php', $abstractManagerClass);
+file_put_contents('lib/AbstractManager.php', $abstractManagerClass);
 
 // Création du .htaccess
 $htaccess = <<<HTACCESS
@@ -379,42 +480,48 @@ HTACCESS;
 file_put_contents('.htaccess', $htaccess);
 
 // Installer des dépendances via Composer
-echo "Installation de certaines dépendances...\n";
-exec('composer require twig/twig:"^3.0"');
+echo "Voulez-vous installer Twig ? (y/".text("n", "yellow").") : ";
+if (trim(fgets(STDIN)) === "y") {
+    echo "Installation de certaines dépendances...\n";
+    exec('composer require twig/twig:"^3.0"');
+}
 
 // Installation de npm et installation de Sass via npm
-echo "Initialisation de Sass... \n";
-exec('npm init -y');
-
-echo "Installation de Sass...\n";
-exec("npm install sass --save-dev");
-
-// Modifier le fichier package.json pour ajouter des scripts
-$packageJsonPath = 'package.json';
-
-// Vérifier que le fichier package.json existe
-if (file_exists($packageJsonPath)) {
-    // Lire le contenu du fichier package.json
-    $packageJson = file_get_contents($packageJsonPath);
-
-    // Convertir le contenu JSON en tableau associatif PHP
-    $packageData = json_decode($packageJson, true);
-
-    // Ajouter ou modifier la section "scripts"
-    $packageData['scripts'] = [
-        "sass-dev" => "sass --watch assets/main.scss public/css/style.css",
-        "sass-prod" => "sass --style=compressed assets/main.scss public/css/style.min.css"
-    ];
-
-    // Convertir le tableau PHP en JSON avec une belle mise en forme
-    $newPackageJson = json_encode($packageData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-    // Écrire les modifications dans le fichier package.json
-    file_put_contents($packageJsonPath, $newPackageJson);
-
-    echo "Scripts ajoutés avec succès dans package.json.\n";
-} else {
-    echo "Erreur : le fichier package.json n'a pas été trouvé.\n";
+echo "Voulez-vous installer Sass ? (y/".text("n", "yellow").") : ";
+if (trim(fgets(STDIN)) === "y") {
+    echo "Initialisation de Sass... \n";
+    exec('npm init -y');
+    
+    echo "Installation de Sass...\n";
+    exec("npm install sass --save-dev");
+    
+    // Modifier le fichier package.json pour ajouter des scripts
+    $packageJsonPath = 'package.json';
+    
+    // Vérifier que le fichier package.json existe
+    if (file_exists($packageJsonPath)) {
+        // Lire le contenu du fichier package.json
+        $packageJson = file_get_contents($packageJsonPath);
+    
+        // Convertir le contenu JSON en tableau associatif PHP
+        $packageData = json_decode($packageJson, true);
+    
+        // Ajouter ou modifier la section "scripts"
+        $packageData['scripts'] = [
+            "sass-dev" => "sass --watch assets/main.scss public/css/style.css",
+            "sass-prod" => "sass --style=compressed assets/main.scss public/css/style.min.css"
+        ];
+    
+        // Convertir le tableau PHP en JSON avec une belle mise en forme
+        $newPackageJson = json_encode($packageData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    
+        // Écrire les modifications dans le fichier package.json
+        file_put_contents($packageJsonPath, $newPackageJson);
+    
+        echo "Scripts ajoutés avec succès dans package.json.\n";
+    } else {
+        echo "Erreur : le fichier package.json n'a pas été trouvé.\n";
+    }
 }
 
 echo text("\nInstallation terminée avec succès. Vous pouvez commencer à développer votre projet dans le dossier '$nomProjet'.\n\n", "green");

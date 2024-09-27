@@ -23,3 +23,9 @@ if "%1"=="create:user" (
     php "D:\GabriX\create_user.php" %2
     exit /b
 )
+
+REM Vérifie si la commande est 'server:start'
+if "%1"=="server:start" (
+    php "D:\GabriX\server_start.php" %2
+    exit /b
+)
