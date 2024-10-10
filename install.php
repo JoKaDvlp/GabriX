@@ -58,7 +58,7 @@ $router->registerRoutesFromController(AppController::class);
 // Routes créées
 
 // Récupérer l'URL actuelle
-$path = $_SERVER['REQUEST_URI'];
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
 // Lancer le routeur
 $router->dispatch($path);
@@ -84,7 +84,7 @@ $index404 = <<<'INDEX404'
 </body>
 </html>
 INDEX404;
-file_put_contents('/templates/pages/erreur/404.html');
+file_put_contents('/templates/pages/erreur/404.html', $index404);
 
 // Création de l'index HTML
 $indexHtml = <<<'INDEXHTML'
@@ -101,6 +101,7 @@ $indexHtml = <<<'INDEXHTML'
 </body>
 </html>
 INDEXHTML;
+file_put_contents('/templates/pages/app/index.html.twig', $indexHtml);
 
 
 // Création du fichier css
@@ -172,8 +173,18 @@ class Router {
     }
 
     public function dispatch($path) {
+        // Normalisation du chemin
         $path = $this->normalizePath($path);
         $method = strtoupper($_SERVER['REQUEST_METHOD']);
+        
+
+        // Vérifiez si le fichier demandé existe réellement dans le dossier public
+        $filePath = __DIR__ . '/../public' . $path; // Assume que 'dispatch' est dans Router.php
+        if (file_exists($filePath) && !is_dir($filePath)) {
+            // Si le fichier existe, on le sert directement
+            return readfile($filePath);
+        }
+    
         foreach ($this->routes as $route) {
             if (preg_match("#^{$route['path']}$#", $path, $matches) && $route['method'] === $method) {
                 if (!empty($route['middlewares'])) {
@@ -194,7 +205,7 @@ class Router {
         }
         // Gérer la route non trouvée
         http_response_code(404);
-        header("/templates/pages/erreur/404.php");
+        include __DIR__ . '/../templates/pages/erreur/404.php';;
     }
 }
 ROUTER;
@@ -231,7 +242,7 @@ use GabriX\Route;
 class AppController extends abstractController{
     #[Route('', name: 'app_index')]
     public function index(){
-        return $this->render('app/index.html');
+        return $this->render('app/index.php');
     }
 }
 APPCONTROLLER;
@@ -245,13 +256,15 @@ $htmlPage = <<<'HTMLPAGE'
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GabriX</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="shortcut icon" href="/favicon.png" type="image/png">
 </head>
 <body>
     <h1>GabriX : framework PHP light</h1>
 </body>
 </html>
 HTMLPAGE;
-file_put_contents('templates/pages/app/index.html', $htmlPage);
+file_put_contents('templates/pages/app/index.html.twig', $htmlPage);
 
 // Création de la class Autoloader
 $autoloaderClass = <<<'AUTOLOADER'
@@ -282,7 +295,7 @@ class Autoloader{
         if (in_array($namespaceParts[0],array_keys(self::$aliases))) {
             $namespaceParts[0] = self::$aliases[$namespaceParts[0]];
         } else {
-            throw new Exception('Namespace « ' . $namespaceParts[0] . ' » invalide. Un namespace doit commencer par : « Plugo » ou « App »', 1);
+            throw new Exception('Namespace « ' . $namespaceParts[0] . ' » invalide. Un namespace doit commencer par : « GabriX » ou « App »', 1);
             
         }
 
@@ -315,6 +328,21 @@ if (class_exists("GabriX\Autoloader")) {
 } else {
     echo "Erreur, autoloader introuvable...";
 }
+// Inclure l'autoloader de Composer
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// Configuration de Twig
+$loader = new \Twig\Loader\FilesystemLoader(__DIR__ . '/../templates');
+$twig = new \Twig\Environment($loader, [
+    'cache' => __DIR__ . '/../cache',  // Mise en cache des pages twig déjà compilées
+    'debug' => true, // Activer le mode debug en développement
+]);
+
+// Activer le débogage de Twig
+$twig->addExtension(new \Twig\Extension\DebugExtension());
+
+// Rendre Twig accessible globalement (optionnel)
+$GLOBALS['twig'] = $twig;
 INIT;
 file_put_contents('lib/Init.php', $initFile);
 
@@ -327,29 +355,15 @@ namespace GabriX;
 
 class abstractController {
 
-    protected function render($view, $parameter = []){
-        // Rôle : Extrait les données nécessaire à la construction du template et inclut le template
-        // Paramètres :
-        //          $view : chemin du template à afficher
-        //          $parameter : tableau des données nécessaires à la construction du template
-        // Retour : le template rendu
-        ob_start();
-        extract($parameter);
-        require __DIR__ . "/../templates/pages/" . $view;            
-        $content = ob_get_contents();
-        ob_end_clean();
-        return $content;
+    protected function render($view, $parameters = []) {
+        // Utilisation de Twig pour le rendu
+        return $GLOBALS['twig']->render($view . '.html.twig', $parameters);
     }
 
-    protected function redirectToRoute($url){
-        // Rôle : Redirige vers l'url ou la route spécifiée
-        // Paramètres :
-        //          $url : l'URL ou la route vers laquelle rediriger
-        // Retour : néant
+    protected function redirectToRoute($url) {
         header("Location: {$url}");
         exit;
     }
-
 }
 ABSTRACTCONTROLLER;
 file_put_contents('lib/AbstractController.php', $abstractControllerClass);
@@ -361,6 +375,8 @@ $abstractManagerClass = <<<'ABSTRACTMANAGER'
 namespace GabriX;
 
 use PDO;
+use PDOException;
+use InvalidArgumentException;
 
 require '../config/database.php';
 
@@ -407,105 +423,186 @@ abstract class AbstractManager{
         return $table;
     }
 
-    protected function readOne($class, $filters){
+    protected function readOne($class, $filters, $joins = []){
         // Rôle : Récupère une ressource de la BDD
         // Paramètres :
         //          $class (string) : le namespace d'une entité
         //          $filters (array) : un tableau de critères de filtres de la ressource
         // Retour : un objet en cas de succès, false sinon
-        $query = 'SELECT * FROM' . $this->getTableName($class) . ' WHERE ';
-        foreach (array_keys($filters) as $filter) {
-            $query .= $filter . " = :" . $filter;
+        if (empty($filters)) {
+            throw new InvalidArgumentException('Le filtre est obligatoire.');
+        }
+        // Initialisation de la requête de base
+        $baseTable = $this->getTableName($class);
+        $query = "SELECT t1.*";
+
+        // Construction de la chaîne des jointures
+        $joinClause = '';
+        $selectFields = 't1.*'; // Par défaut on récupère les champs de t1
+        if (!empty($joins)) {
+            foreach ($joins as $table => $joinData) {
+                $alias = isset($joinData['alias']) ? $joinData['alias'] : $table;
+                $fields = isset($joinData['fields']) ? $joinData['fields'] : '*';
+                $condition = isset($joinData['condition']) ? $joinData['condition'] : '';
+                $type = isset($joinData['type']) ? $joinData['type'] : 'INNER'; // Par défaut INNER JOIN
+
+                // Ajout des champs sélectionnés
+                $selectFields .= ", $fields";
+
+                // Construction de la clause de jointure
+                if (!empty($condition)) {
+                    $joinClause .= " $type JOIN $table $alias ON $condition";
+                }
+            }
+        }
+
+        // Ajout des champs sélectionnés à la requête
+        $query = "SELECT $selectFields FROM $baseTable t1 $joinClause";
+
+        // Ajout des filtres
+        foreach ($filters as $filter => $value) {
+            if (substr($value,0,1)==="%" || substr($value,-1)==="%") {
+                $query .= $filter . " LIKE :" . $filter;
+            }else{
+                $query .= $filter . " = :" . $filter;
+            }
             if ($filter != array_key_last($filters)) $query .= ' AND ';
         }
-        $stmt = $this->executeQuery($query, $filters);
-        $stmt->setFetchMode(PDO::FETCH_CLASS, $class);
-        return $stmt->fetch();
+        try {
+            // Exécution de la requête
+            $stmt = $this->executeQuery($query, $filters);
+            $stmt->setFetchMode(PDO::FETCH_CLASS, $class);
+            // Retourne l'objet ou false si non trouvé
+            return $stmt->fetch();
+        } catch (PDOException $e) {
+            // Log l'erreur ou renvoyer false
+            error_log('Database error: ' . $e->getMessage());
+            return false;
+        }
     }
 
-    protected function readMany($class, $filters = [], $order = [], $limit = null, $offset = null){
-        // Rôle : Récupère plusieurs ressources dans la BDD
+    protected function readMany($class, $filters = [], $order = [], $limit = null, $offset = null, $joins = []) {
+        // Rôle : Récupère plusieurs ressources dans la BDD avec possibilité de jointures
         // Paramètres :
         //          $class (string) : le namespace d'une entité
         //          $filters (array) : un tableau de critères de filtres des ressources
-        //          $order (array) : un tableau de critères de tri des ressources. exemples : ['price' => 'ASC', 'views' => 'DESC']
+        //          $order (array) : un tableau de critères de tri des ressources. Ex : ['price' => 'ASC', 'views' => 'DESC']
         //          $limit (int) : un nombre limitant la quantité de ressources à récupérer
         //          $offset (int) : un nombre spécifiant un décalage pour la récupération de ressources ("à partir de telle ligne")
+        //          $joins (array) : un tableau de jointures sous la forme ['table_name' => ['alias' => 't2', 'fields' => 't1.id, t1.fields1, t1.fields2, t2.fields', 'condition' => 't1.fields3 = t2.id', 'type' => 'LEFT']]
         // Retour : un tableau d'objets en cas de succès, false sinon
-		$query = 'SELECT * FROM ' . $this->getTableName($class);
-		if (!empty($filters)) {
-			$query .= ' WHERE ';
-			foreach (array_keys($filters) as $filter) {
-				$query .= $filter . " = :" . $filter;
-				if ($filter != array_key_last($filters)) $query .= ' AND ';
-			}
-		}
-		if (!empty($order)) {
-			$query .= ' ORDER BY ';
-			foreach ($order as $key => $val) {
-				$query .= $key . ' ' . $val;
-				if ($key != array_key_last($order)) $query .= ', ';
-			}
-		}
-		if (isset($limit)) {
-			$query .= ' LIMIT ' . $limit;
-			if (isset($offset)) {
-				$query .= ' OFFSET ' . $offset;
-			}
-		}
-		$stmt = $this->executeQuery($query, $filters);
-		$stmt->setFetchMode(PDO::FETCH_CLASS, $class);
-		return $stmt->fetchAll();
-	}
 
-    protected function create($class, $fields){
-        // Rôle : enregistre une ressource au sein d'une table
-        // Paramètres :
-        //          $class (string) : le namesace d'une entité
-        //          $fields (array) : les champs à enregistrer en BDD
-        // Retour : Une instance de PDOStatement en cas de succès, false sinon
-		$query = "INSERT INTO " . $this->getTableName($class) . " (";
-		foreach (array_keys($fields) as $field) {
-			$query .= $field;
-			if ($field != array_key_last($fields)) $query .= ', ';
-		}
-		$query .= ') VALUES (';
-		foreach (array_keys($fields) as $field) {
-			$query .= ':' . $field;
-			if ($field != array_key_last($fields)) $query .= ', ';
-		}
-		$query .= ')';
-		return $this->executeQuery($query, $fields);
-	}
+    
+        // Initialisation de la requête de base
+        $baseTable = $this->getTableName($class);
+        $query = "SELECT t1.*";
 
-    protected function update($class, $fields, $id){
-        // Rôle : Modifie une ressource au sein d'une table
-        // Paramètres :
-        //          $class (string) : le amespace d'une entité
-        //          $fields (array) : les champs à modifier en BDD
-        //          $id (string) : l'identifiant de la ressource à éditer
-        // Retour : une instance de PDOStatement en cas de succès, false sinon
-		$query = "UPDATE " . $this->getTableName($class) . " SET ";
-		foreach (array_keys($fields) as $field) {
-			$query .= $field . " = :" . $field;
-			if ($field != array_key_last($fields)) $query .= ', ';
-		}
-		$query .= ' WHERE id = :id';
-		$fields['id'] = $id;
-		return $this->executeQuery($query, $fields);
-	}
+        // Construction de la chaîne des jointures
+        $joinClause = '';
+        $selectFields = 't1.*'; // Par défaut on récupère les champs de t1
+        if (!empty($joins)) {
+            foreach ($joins as $table => $joinData) {
+                $alias = isset($joinData['alias']) ? $joinData['alias'] : $table;
+                $fields = isset($joinData['fields']) ? $joinData['fields'] : '*';
+                $condition = isset($joinData['condition']) ? $joinData['condition'] : '';
+                $type = isset($joinData['type']) ? $joinData['type'] : 'INNER'; // Par défaut INNER JOIN
 
-    protected function remove($class, $id){
-        // Rôle : Supprime une ressource au sein d'une table
-        // Paramètres :
-        //          $class (string) : le namespace d'une entité
-        //          $$id (int) : l'identifiant de la ressource à supprimer
-        // Retour : une instance de PDOStatement en cas de succès, false sinon
-		$query = "DELETE FROM " . $this->getTableName($class) . " WHERE id = :id";
-		return $this->executeQuery($query, [ 'id' => $id ]);
-	}
+                // Ajout des champs sélectionnés
+                $selectFields .= ", $fields";
 
-}
+                // Construction de la clause de jointure
+                if (!empty($condition)) {
+                    $joinClause .= " $type JOIN $table $alias ON $condition";
+                }
+            }
+        }
+
+        // Ajout des champs sélectionnés à la requête
+        $query = "SELECT $selectFields FROM $baseTable t1 $joinClause";
+        
+            // Ajout des filtres
+            if (!empty($filters)) {
+                $query .= ' WHERE ';
+                foreach ($filters as $filter => $value) {
+                    if (substr($value, 0, 1) === "%" || substr($value, -1) === "%") {
+                        $query .= $filter . " LIKE :" . $filter;
+                    } else {
+                        $query .= $filter . " = :" . $filter;
+                    }
+                    if ($filter != array_key_last($filters)) $query .= ' AND ';
+                }
+            }
+        
+            // Ajout des critères de tri
+            if (!empty($order)) {
+                $query .= ' ORDER BY ';
+                foreach ($order as $key => $val) {
+                    $query .= $key . ' ' . $val;
+                    if ($key != array_key_last($order)) $query .= ', ';
+                }
+            }
+        
+            // Ajout des limites et offset
+            if (isset($limit)) {
+                $query .= ' LIMIT ' . $limit;
+                if (isset($offset)) {
+                    $query .= ' OFFSET ' . $offset;
+                }
+            }
+            // Exécution de la requête
+            $stmt = $this->executeQuery($query, $filters);
+            $stmt->setFetchMode(PDO::FETCH_CLASS, $class);
+            return $stmt->fetchAll();
+        }
+
+        protected function create($class, $fields){
+            // Rôle : enregistre une ressource au sein d'une table
+            // Paramètres :
+            //          $class (string) : le namesace d'une entité
+            //          $fields (array) : les champs à enregistrer en BDD
+            // Retour : Une instance de PDOStatement en cas de succès, false sinon
+            $query = "INSERT INTO " . $this->getTableName($class) . " (";
+            foreach (array_keys($fields) as $field) {
+                $query .= $field;
+                if ($field != array_key_last($fields)) $query .= ', ';
+            }
+            $query .= ') VALUES (';
+            foreach (array_keys($fields) as $field) {
+                $query .= ':' . $field;
+                if ($field != array_key_last($fields)) $query .= ', ';
+            }
+            $query .= ')';
+            return $this->executeQuery($query, $fields);
+        }
+
+        protected function update($class, $fields, $id){
+            // Rôle : Modifie une ressource au sein d'une table
+            // Paramètres :
+            //          $class (string) : le amespace d'une entité
+            //          $fields (array) : les champs à modifier en BDD
+            //          $id (string) : l'identifiant de la ressource à éditer
+            // Retour : une instance de PDOStatement en cas de succès, false sinon
+            $query = "UPDATE " . $this->getTableName($class) . " SET ";
+            foreach (array_keys($fields) as $field) {
+                $query .= $field . " = :" . $field;
+                if ($field != array_key_last($fields)) $query .= ', ';
+            }
+            $query .= ' WHERE id = :id';
+            $fields['id'] = $id;
+            return $this->executeQuery($query, $fields);
+        }
+
+        protected function remove($class, $id){
+            // Rôle : Supprime une ressource au sein d'une table
+            // Paramètres :
+            //          $class (string) : le namespace d'une entité
+            //          $$id (int) : l'identifiant de la ressource à supprimer
+            // Retour : une instance de PDOStatement en cas de succès, false sinon
+            $query = "DELETE FROM " . $this->getTableName($class) . " WHERE id = :id";
+            return $this->executeQuery($query, [ 'id' => $id ]);
+        }
+
+    }
 ABSTRACTMANAGER;
 file_put_contents('lib/AbstractManager.php', $abstractManagerClass);
 
@@ -516,14 +613,11 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
 HTACCESS;
-file_put_contents('.htaccess', $htaccess);
+file_put_contents('public/.htaccess', $htaccess);
 
 // Installer des dépendances via Composer
-echo "Voulez-vous installer Twig ? (y/".text("n", "yellow").") : ";
-if (trim(fgets(STDIN)) === "y") {
-    echo "Installation de certaines dépendances...\n";
-    exec('composer require twig/twig:"^3.0"');
-}
+echo "Installation de Twig\n";
+exec('composer require twig/twig:"^3.0"');
 
 // Installation de npm et installation de Sass via npm
 echo "Voulez-vous installer Sass ? (y/".text("n", "yellow").") : ";
@@ -533,6 +627,57 @@ if (trim(fgets(STDIN)) === "y") {
     
     echo "Installation de Sass...\n";
     exec("npm install sass --save-dev");
+
+    // Créer le dossier assets contenant le fichier main.scss et le dossier components
+    mkdir('assets', 0777, true);
+    mkdir('assets/components', 0777, true);
+
+    // Création du fichier main.scss
+    $mainScss = <<<MAINSCSS
+    @import "./_variables.scss";
+    MAINSCSS;
+    file_put_contents('assets/main.scss', $mainSass);
+
+    // Création du fichier de variables scss avec la fonction de gestion des largueur de colonnes dans un système flexbox
+    $variablesScss = <<<'VARIABLESSCSS'
+    /* Merci Nico pour la fonction ;) */
+    $gutter: 16px;
+
+    @function large($i){
+        @return calc((100% / (12 / $i)) - (((12 / $i) - 1) * $gutter) / (12 / $i)); 
+    }
+
+    @mixin largeur-modifier {
+        @for $i from 1 to 13{
+            &-#{$i}{
+            width : large($i);
+            }
+        }
+    }
+
+    /*Generation des classes pour la largeur des colonnes selon 
+    les resolutions d'ecrans*/
+
+    /*Desktop*/
+    .large{
+        @include largeur-modifier;
+    }
+
+    /*Tablets*/
+    @media all and (max-width : 700px){
+        .medium{
+        @include largeur-modifier;
+        }
+    }
+
+    /*Smartphones*/
+    @media all and (max-width : 400px){
+        .small{
+            @include largeur-modifier;
+        }
+    }
+    VARIABLESSCSS;
+    file_put_contents('assets/_variables.scss', $variablesScss);
     
     // Modifier le fichier package.json pour ajouter des scripts
     $packageJsonPath = 'package.json';
