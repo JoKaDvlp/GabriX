@@ -178,20 +178,20 @@ use GabriX\AbstractManager;
 
 class {$nomEntite}Manager extends AbstractManager{
 
-    public function find(\$id) {
-		return \$this->readOne({$nomEntite}::class, [ 'id' => \$id ]);
+    public function find(\$id, \$joins = []) {
+		return \$this->readOne({$nomEntite}::class, [ 'id' => \$id ], \$joins);
 	}
 
-    public function findOneBy(\$filters) {
-		return \$this->readOne({$nomEntite}::class, \$filters);
+    public function findOneBy(\$filters, \$joins = []) {
+		return \$this->readOne({$nomEntite}::class, \$filters, \$joins);
 	}
 
     public function findAll() {
 		return \$this->readMany({$nomEntite}::class);
 	}
 
-    public function findBy(\$filters, \$order = [], \$limit = null, \$offset = null) {
-		return \$this->readMany({$nomEntite}::class, \$filters, \$order, \$limit, \$offset);
+    public function findBy(\$filters, \$order = [], \$limit = null, \$offset = null, \$joins = []) {
+		return \$this->readMany({$nomEntite}::class, \$filters, \$order, \$limit, \$offset, \$joins);
 	}
 
 	public function add({$nomEntite} \${$nomTable}) {

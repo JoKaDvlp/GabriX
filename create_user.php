@@ -255,7 +255,7 @@ namespace Gabrix;
 
 // Classe session : classe de gestion de la session
 
-use App\Entity\User;
+use App\Manager\UserManager;
 
 class Session {
 
@@ -266,12 +266,6 @@ class Session {
 
         // Démarrer le mécanisme
         session_start();
-
-        // Si un utilisateur est connecté
-        if (self::isconnected()){
-            global $utilisateurConnecte;
-            $utilisateurConnecte = new User(self::idconnected());
-        }
 
         // Retourner si on est connecté ou pas
         return self::isconnected();
@@ -303,9 +297,11 @@ class Session {
         // Retour : Un objet utilisateur chargé
 
         if(self::isconnected()) {
-            return new User(self::idconnected());
+            $userManager = new UserManager;
+            $user = $userManager->find(self::idconnected());
+            return $user;
         } else {
-            return new User();
+            return new UserManager;
         }
     }
 
