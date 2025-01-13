@@ -41,6 +41,7 @@ mkdir('storage');
 mkdir('templates');
 mkdir('templates/pages');
 mkdir('templates/pages/app');
+mkdir('templates/pages/erreur');
 
 // Création de l'index
 $index = <<<'INDEX'
@@ -63,7 +64,7 @@ $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 // Lancer le routeur
 $router->dispatch($path);
 INDEX;
-file_put_contents('public/index.php', $index);+
+file_put_contents('public/index.php', $index);
 
 // Création de la page 404
 $index404 = <<<'INDEX404'
@@ -84,7 +85,7 @@ $index404 = <<<'INDEX404'
 </body>
 </html>
 INDEX404;
-file_put_contents('/templates/pages/erreur/404.html', $index404);
+file_put_contents('templates/pages/erreur/404.html', $index404);
 
 // Création de l'index HTML
 $indexHtml = <<<'INDEXHTML'
@@ -101,7 +102,7 @@ $indexHtml = <<<'INDEXHTML'
 </body>
 </html>
 INDEXHTML;
-file_put_contents('/templates/pages/app/index.html.twig', $indexHtml);
+file_put_contents('templates/pages/app/index.html.twig', $indexHtml);
 
 
 // Création du fichier css
@@ -242,7 +243,7 @@ use GabriX\Route;
 class AppController extends abstractController{
     #[Route('', name: 'app_index')]
     public function index(){
-        return $this->render('app/index.php');
+        return $this->render('pages/app/index');
     }
 }
 APPCONTROLLER;
@@ -636,11 +637,12 @@ if (trim(fgets(STDIN)) === "y") {
     $mainScss = <<<MAINSCSS
     @import "./_variables.scss";
     MAINSCSS;
-    file_put_contents('assets/main.scss', $mainSass);
+    file_put_contents('assets/main.scss', $mainScss);
 
     // Création du fichier de variables scss avec la fonction de gestion des largueur de colonnes dans un système flexbox
     $variablesScss = <<<'VARIABLESSCSS'
     /* Merci Nico pour la fonction ;) */
+    
     $gutter: 16px;
 
     @function large($i){
@@ -713,5 +715,7 @@ echo text("\nInstallation terminée avec succès. Vous pouvez commencer à déve
 echo text("Voulez-vous ouvrir votre projet créé avec VSCode ? (oui par défaut) : ", "blue");
 if (trim(fgets(STDIN)) === "" || trim(fgets(STDIN)) === "y") {
     exec("code .");
+} else {
+    exit;
 }
 ?>
