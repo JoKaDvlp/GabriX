@@ -1,5 +1,7 @@
 Procédure d'utilisation du framework GabriX.
 
+Installez GabriX où vous le souhaitez, modifiez la variable d'environnement "path" en ajoutant le chemin absolu du repertoire où vous avez installez GabriX et let's go !
+
 Dans la console dans le dossier dans lequel créer le projet :
 
 Création d'un nouveau projet -> GabriX install
